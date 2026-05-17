@@ -1,4 +1,4 @@
-// SENTINEL-TV — Phase 0 spike service v0.0.7 (expanded probe)
+// SENTINEL-TV — Phase 0 spike service v0.0.8 (expanded probe, Node-4-safe)
 //
 // Pure discovery — no launchAppControl, no behavior change.
 // Maps out everything we'd want to know about our sandbox's capabilities,
@@ -20,7 +20,7 @@
   var http = require('http');
   var SERVER_HOST = '192.168.1.216';
   var SERVER_PORT = 9999;
-  var VERSION = '0.0.7';
+  var VERSION = '0.0.8';
 
   function postJSON(path, payload) {
     try {
@@ -203,7 +203,9 @@
     try { t['tizen.application'] = typeof tizen !== 'undefined' && tizen.application ? Object.keys(tizen.application).slice(0, 25) : null; } catch (e) { t['tizen.application'] = 'err:' + e.message; }
     try { t['tizen.tv'] = typeof tizen !== 'undefined' && tizen.tv ? Object.keys(tizen.tv).slice(0, 25) : null; } catch (e) { t['tizen.tv'] = 'err:' + e.message; }
     try { t['tizen.systeminfo'] = typeof tizen !== 'undefined' && tizen.systeminfo ? Object.keys(tizen.systeminfo).slice(0, 25) : null; } catch (e) { t['tizen.systeminfo'] = 'err:' + e.message; }
-    postJSON('/service-tizen-probe', { v: VERSION, ...t, ts: Date.now() });
+    t.v = VERSION;
+    t.ts = Date.now();
+    postJSON('/service-tizen-probe', t);
   })();
 
   // ── 7. Installed apps list ─────────────────────────────────────────────
