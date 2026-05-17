@@ -1,12 +1,12 @@
-// SENTINEL-TV — Phase 0 spike service v0.0.5
+// SENTINEL-TV — Phase 0 spike service v0.0.6
 //
-// Builds on v0.0.4 by mirroring TizenTube's launchAppControl pattern.
-// After a 3s settle, the service relaunches TizenBrewStandalone with
-// our module as the appcontrol payload — this triggers TizenBrew's
-// WebView injection path, which the tile-click path does NOT.
+// v0.0.6 change: mirror TizenTube's launchAppControl call EXACTLY.
+//   - 2 args (appControl + targetAppId), no success/error callbacks.
+//   - Operation `http://tizen.org/appcontrol/operation/view` (same as TizenTube).
+//   - ApplicationControlData("module", [JSON{moduleName,moduleType,args}]).
 //
-// Diagnostic POSTs at each step so we can see exactly where the path
-// succeeds or breaks.
+// Hypothesis: v0.0.5 silently failed because we passed 4 args (callbacks).
+// Tizen may have rejected or ignored the call.
 
 (function () {
   'use strict';
@@ -14,7 +14,7 @@
   var http = require('http');
   var SERVER_HOST = '192.168.1.216';
   var SERVER_PORT = 9999;
-  var VERSION = '0.0.5';
+  var VERSION = '0.0.6';
 
   function postJSON(path, payload) {
     try {
@@ -35,7 +35,6 @@
     } catch (_) {}
   }
 
-  // ── Boot ─────────────────────────────────────────────────────────────
   postJSON('/service-boot', {
     src: 'service',
     v: VERSION,
@@ -43,63 +42,67 @@
     tizen: typeof tizen !== 'undefined',
   });
 
-  // ── Heartbeat ────────────────────────────────────────────────────────
   setInterval(function () {
     postJSON('/service-heartbeat', { src: 'service', v: VERSION, ts: Date.now() });
   }, 5000);
 
-  // ── TizenTube-style launchAppControl trick ───────────────────────────
-  // Wait 3s for the tile-click flow to settle, then relaunch
-  // TizenBrewStandalone with appcontrol data pointing at our module.
-  // TizenBrew should react by injecting our mainFile (userScript.js)
-  // into the WebView that loads the module's websiteURL.
+  // ── TizenTube-exact launchAppControl call ────────────────────────────
+  // After a 3s settle, fire the exact call TizenTube uses.
   setTimeout(function () {
+    var step = 'pre-getAppInfo';
     try {
-      // tizen.application.getAppInfo() in the service context returns
-      // info for the TizenBrew main app (us, since we run inside it).
       var appInfo = tizen.application.getAppInfo();
       var tbPackageId = appInfo.packageId;
-      var ownAppId = appInfo.id;
+      step = 'pre-new-ApplicationControlData';
 
-      postJSON('/service-launch-attempt', {
-        tbPackageId: tbPackageId,
-        ownAppId: ownAppId,
-        target: tbPackageId + '.TizenBrewStandalone',
-        ts: Date.now(),
-      });
-
-      var moduleData = JSON.stringify({
+      var moduleArg = JSON.stringify({
         moduleName: 'windhooked/sentinel-tv-spike',
         moduleType: 'gh',
         args: {},
       });
 
-      var appControl = new tizen.ApplicationControl(
-        'http://tizen.org/appcontrol/operation/view',
-        null, null, null,
-        [new tizen.ApplicationControlData('module', [moduleData])]
+      postJSON('/service-launch-attempt', {
+        v: VERSION,
+        tbPackageId: tbPackageId,
+        ownAppId: appInfo.id,
+        target: tbPackageId + '.TizenBrewStandalone',
+        moduleArg: moduleArg,
+        ts: Date.now(),
+      });
+
+      step = 'pre-launchAppControl';
+      // EXACTLY TizenTube's call shape — 2 args, no callbacks.
+      tizen.application.launchAppControl(
+        new tizen.ApplicationControl(
+          'http://tizen.org/appcontrol/operation/view',
+          null, null, null,
+          [new tizen.ApplicationControlData('module', [moduleArg])]
+        ),
+        tbPackageId + '.TizenBrewStandalone'
       );
 
-      tizen.application.launchAppControl(
-        appControl,
-        tbPackageId + '.TizenBrewStandalone',
-        function onSuccess() {
-          postJSON('/service-launch-ok', { ts: Date.now() });
-        },
-        function onError(e) {
-          postJSON('/service-launch-err', {
-            msg: String((e && e.message) || e),
-            type: String(e && e.type),
-            ts: Date.now(),
-          });
-        }
-      );
+      // If we got here, the call returned synchronously without throwing.
+      postJSON('/service-launch-issued', { v: VERSION, ts: Date.now() });
     } catch (e) {
       postJSON('/service-launch-throw', {
+        v: VERSION,
+        step: step,
         msg: String((e && e.message) || e),
-        stack: String(e && e.stack || ''),
+        name: String(e && e.name),
+        type: String(e && e.type),
+        stack: String((e && e.stack) || ''),
         ts: Date.now(),
       });
     }
   }, 3000);
+
+  // ── Post-launch heartbeat with version tag ───────────────────────────
+  // Re-fire a heartbeat 10s after launch attempt so we can correlate.
+  setTimeout(function () {
+    postJSON('/service-post-launch', {
+      v: VERSION,
+      ts: Date.now(),
+      uptime_seconds: 10,
+    });
+  }, 13000);
 })();

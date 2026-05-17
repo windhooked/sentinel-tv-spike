@@ -1,7 +1,7 @@
 {
   "name": "sentinel-tv-spike",
   "appName": "Sentinel-TV Phase 0 Spike",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "serviceFile": "dist/service.js",
   "description": "Phase 0 hardware-validation spike for SENTINEL-TV parental controls. Posts heartbeats, DOM state, and mutation events to a LAN listener. Remove after Phase 0 GO/NO-GO is recorded.",
   "packageType": "mods",
